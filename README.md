@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.webp" alt="Hafız" width="420"></p>
+
 # Hafız
 
 Claude Code uzun bir konuşmayı kısalttığında bazı ayrıntılar özette kaybolabilir. Hafız, kısaltmadan önce son mesajlarınızı saklar; konuşma devam ettiğinde bu mesajları yeniden gösterir. İnternet bağlantısı veya ücretli bir hizmet kullanmaz.
