@@ -103,6 +103,51 @@ Yapıştırılmış sayfa ve dosya içerikleri geri verilen mesajlarda yer tutuc
 - Okuma/yazma sorunu kısaltmayı durdurmaz. Kancalar hata durumunda da başarılı çıkış koduyla döner; özet öncesinde genel talimat verilir, diğer kancalar sessiz kalır.
 - Hafız ayrı bir kalıcı hafıza hizmeti değildir; modelin bütün ayrıntıları hatırlayacağını veya verilen talimata her zaman uyacağını garanti etmez. Kısaltma olaylarını destekleyen bir Claude Code sürümü gerekir.
 
+## Bağlam sayacı modu (isteğe bağlı)
+
+Claude Code masaüstü uygulamasında, yazı kutusunun üstündeki satırın sağ ucunda tek bir hap gösterir: örneğin **436k / 500k** ve ince bir doluluk çubuğu. `k`, bin demektir. Sayı normal yazı rengindedir; çubuk ve çerçeve %80'den itibaren amber, %95'ten itibaren kırmızıdır. Renkler uygulamanın tema anahtarlarından gelir; açık ve koyu görünümü izler. Sol taraf boş kalır. Başka modların haplarını taşımaz veya yeniden çizmez; mod API'sinin her moda ayırdığı satırda durur.
+
+Pencere, geçerli bir `autoCompactWindow` ayarı varsa ondan, yoksa modelin bildirdiği bağlam penceresinden okunur; sabit 500 bin kabul edilmez. Sayılar son model yanıtının giriş kullanımını gösterir, yazılmakta olan yanıtın canlı sözcük sayısını göstermez. Görünüm beş saniyede bir ve tur bittiğinde yenilenir. Henüz ölçüm yoksa veya ölçüm okunamıyorsa hap gösterilmez. Sayaç herhangi bir model isteği göndermez.
+
+%80'den itibaren **Temiz compact** görünür. Basınca **Evet / Vazgeç** onayı açılır; Evet, `/compact` ile aynı kısaltma işlemini başlatır. Özette işin durumunu, kullanıcının kararlarını ve düzeltmelerini korumasını ister. Hafız'ın mesaj saklama kancaları kuruluysa bu kısaltmada da çalışır. Sayaç tek başına kullanılabilir; Hafız kancalarına veya başka bir moda bağımlı değildir.
+
+**Tur sürerken işlem pasiftir.** Başka oturumdan gelen bir mesajla başlayan turlar da buna dahildir. Bu API'de düğmenin `disabled` alanı bulunmadığı için yerine soluk, tıklanamaz yazı çizilir. Üzerine gelince “Tur bitince compact yapılabilir” açıklaması açılır; tur bitince düğme kendiliğinden geri gelir. Tıklama ile işlemin başlaması arasına yeni bir tur girerse, bildirim bunu açıklar ve tur bitince yeniden denemenizi ister; kendiliğinden tekrar denemez.
+
+### Sayacı kurma
+
+İşlev kancaları mod API'sini destekleyen Claude Code sürümü gerekir. Bu mod **2.1.325** sürümünün API belgesine göre hazırlanmış, **2.1.326** sürümünün sınama aracıyla doğrulanmıştır. Ana paketin `node install.mjs` kurucusu sayacı kurmaz.
+
+İndirdiğiniz Hafız klasöründe terminal açın. Mod belgesinin yerel eklenti kataloğu yöntemiyle:
+
+```sh
+claude plugin marketplace add .
+claude plugin install hafiz-sayac@hafiz --scope user
+```
+
+Masaüstü uygulamasındaki yerel Claude Code konuşmasında `/reload-plugins` çalıştırın; gerekirse konuşmayı yeniden açın. `claude plugin list` çıktısında sayacın kaynağı indirdiğiniz klasör olarak görünür. Yerel katalog yöntemi bu klasörü okuduğu için klasörü koruyun; düzenleme yaptıysanız `/reload-plugins` ile tekrar okutabilirsiniz. Buradaki kurulumun adı `hafiz`, eklentinin adı `hafiz-sayac`tır.
+
+Yalnız geliştirme sırasında, kalıcı kurulum yerine mod belgesinin `claude --plugin-dir ./mod/hafiz-sayac` yolu da kullanılabilir. Masaüstünün başlattığı yerel süreçler için eşdeğeri, kullanıcı ayarlarındaki `env` nesnesine `CLAUDE_CODE_PLUGIN_DIRS` eklemektir; değeri sayacın klasörünün mutlak konumu olmalıdır. Bu yolu seçerseniz var olan `env` alanlarını koruyun; aynı mod için iki yükleme yöntemini birlikte kullanmayın.
+
+### Sayacı kaldırma
+
+```sh
+claude plugin uninstall hafiz-sayac@hafiz --scope user
+```
+
+Ardından masaüstündeki konuşmada `/reload-plugins` çalıştırın veya konuşmayı yeniden açın. Bu katalogdan başka eklenti kullanmıyorsanız `claude plugin marketplace remove hafiz` ile katalog kaydını da kaldırabilirsiniz. Geliştirme yolunu kullandıysanız ilgili `--plugin-dir` seçeneğini veya `CLAUDE_CODE_PLUGIN_DIRS` listesinden yalnız bu modun konumunu kaldırıp konuşmayı yeniden açın. Hafız'ın mesaj kancaları ve arşivi etkilenmez; sayaç dosya veya günlük oluşturmaz, kendi yenileme saati oturum bitince kapanır.
+
+### Sayacı doğrulama
+
+Gerçek uygulamaya kurmadan, Hafız klasöründe:
+
+```sh
+claude plugin validate mod/hafiz-sayac --strict
+claude plugin validate . --strict
+claude plugin test mod/hafiz-sayac
+```
+
+Son komut API'nin kendi sınama ortamında masaüstü ve terminal çizimlerini, onay akışını, tur durumunu ve bildirimleri dener. Uygulamanın gerçek boyaması bu ortamın kapsamı dışındadır. `node --test` ayrıca hesap sınırlarını, eski onay basışlarını, çift basışı ve yenileme saatinin kapanmasını sınar; mevcut kanca sınamalarını da çalıştırır.
+
 ## Doğrulama
 
 Paket klasöründe `node --test` ya da `npm test` çalışır. Bağımlılık kurulmaz. Sınamalar kendi geçici ev, konuşma ve kurulum klasörlerini paket klasöründe oluşturup sonunda temizler; gerçek kullanıcı ayarına dokunmaz. İçerik ayıklama, izinler, kuyruk mesajları, büyük kayıtlar, iki dil, saklama sınırları ve kurma/kaldırma birlikte sınanır.

@@ -1,0 +1,7 @@
+{
+  "name": "hafiz-sayac",
+  "version": "1.0.0",
+  "description": "Bağlam doluluğunu gösteren bağımsız sayaç ve isteğe bağlı temiz kısaltma.",
+  "author": { "name": "Hafız katkıcıları" },
+  "license": "MIT"
+}

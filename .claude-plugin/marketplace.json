@@ -1,0 +1,12 @@
+{
+  "name": "hafiz",
+  "owner": { "name": "Hafız katkıcıları" },
+  "metadata": { "description": "Hafız için isteğe bağlı bağlam sayacı." },
+  "plugins": [
+    {
+      "name": "hafiz-sayac",
+      "source": "./mod/hafiz-sayac",
+      "description": "Claude Code için bağımsız bağlam sayacı."
+    }
+  ]
+}
