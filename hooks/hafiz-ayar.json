@@ -1,0 +1,11 @@
+{
+  "durumDizini": "~/.claude/hafiz-durum",
+  "saklamaGunu": 7,
+  "boyutMB": 50,
+  "toplamKarakter": 80000,
+  "mesajKarakter": 4000,
+  "parcaSayisi": 3,
+  "parcaKarakter": 9500,
+  "ozetSayisi": 5,
+  "dil": "tr"
+}

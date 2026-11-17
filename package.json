@@ -1,0 +1,10 @@
+{
+  "name": "hafiz-compact",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Claude Code konuşma kısaltmasında son kullanıcı mesajlarını yerelde korur.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test" },
+  "license": "MIT"
+}
