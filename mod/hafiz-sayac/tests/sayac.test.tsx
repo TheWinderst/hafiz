@@ -152,3 +152,18 @@ test('eşik renkleri ve ayar değişikliği çizimde uygulanır', async ($, on) 
     await ui.unmount()
   }
 })
+
+test('evet: compact önce /compact komutu olarak çalışır, doğrudan çağrıya düşmez', async ($, on) => {
+  hazirla(on)
+  const komutlar: any[] = []
+  let dogrudan = 0
+  on('command.run', { command: 'compact' }, (_, e) => { komutlar.push(e); return { text: '' } })
+  on('session.compact', () => { dogrudan++; return { messages: [] } })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'temiz' })
+  await ui.press({ key: 'evet' })
+  expect(komutlar).toHaveLength(1)
+  expect(komutlar[0].args).toContain('kullanıcının')
+  expect(dogrudan).toBe(0)
+  await ui.unmount()
+})

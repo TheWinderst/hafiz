@@ -35,6 +35,12 @@ async function kisalt($, d) {
   d.soruyor = false;
   yenile($);
   try {
+    // Masaüstü uygulaması düğmeden gelen doğrudan $.session.compact çağrısını
+    // reddedebiliyor. Asıl yol /compact'i kullanıcı yazmış gibi çalıştırmaktır.
+    try {
+      await $.command.run({ command: "compact", args: TALIMAT });
+      return;
+    } catch {}
     const sonuc = await $.session.compact({ instructions: TALIMAT });
     if (sonuc?.skip) $.ui.toast("Compact yapılmadı: bir kısaltma kancası işlemi durdurdu.");
   } catch {
