@@ -1,6 +1,6 @@
 // Dış bağımlılık, dosya erişimi ve model çağrısı yoktur.
 const YOKLAMA_MS = 5000;
-const BEKLE = "Tur bitince compact yapılabilir";
+const SORU_MS = 8000;
 const TALIMAT =
   "Süren işin durumunu, kullanıcının kararlarını ve düzeltmelerini birebir koru; dosya yolları tam kalsın.";
 
@@ -19,33 +19,47 @@ export function olcum(context, ayar) {
 }
 
 function yenile($) { $.ui.invalidate("ui.render"); }
-function saatiBaslat($, d) {
-  if (d.saat === null) d.saat = $.clock.every(YOKLAMA_MS, () => yenile($));
+
+// Çizilen değerin imzası: yoklama yalnız bu değişince bandı yeniden çizdirir.
+function imza(sayac) { return sayac ? `${sayac.metin}|${sayac.renk}|${sayac.temiz}` : "yok"; }
+async function oku($) {
+  try {
+    const { context } = await $.session.usage();
+    const ayar = await $.settings.read({ key: "autoCompactWindow" });
+    return olcum(context, ayar);
+  } catch { return null; }
 }
 
-async function kisalt($, d) {
-  if (d.kisaltiyor) return;
-  if (d.anaTur || d.calisiyor) {
-    d.soruyor = false;
-    $.ui.toast(BEKLE);
-    yenile($);
-    return;
-  }
+// Her yoklamada invalidate çağrılsaydı, o anda yapılan tıklama düşerdi.
+async function yokla($, d) {
+  const yeni = imza(await oku($));
+  if (d.saat !== null && yeni !== d.sonImza) yenile($);
+}
+function saatiBaslat($, d) {
+  if (d.saat === null) d.saat = $.clock.every(YOKLAMA_MS, () => yokla($, d));
+}
+
+// Sayaca basınca soru açılır; 8 sn cevap gelmezse kapanır. Eski zamanlayıcı
+// sonradan açılan yeni soruyu kapatmasın diye soru kimliği karşılaştırılır.
+function soruAc($, d) {
+  if (d.sirada || d.kisaltiyor) return;
+  const kimlik = ++d.soruKimlik;
+  d.soruyor = true;
+  yenile($);
+  $.clock.after(SORU_MS, () => {
+    if (d.soruyor && d.soruKimlik === kimlik) { d.soruyor = false; yenile($); }
+  });
+}
+
+async function dogrudan($, d) {
+  d.sirada = false;
   d.kisaltiyor = true;
-  d.soruyor = false;
   yenile($);
   try {
-    // Masaüstü uygulaması düğmeden gelen doğrudan $.session.compact çağrısını
-    // reddedebiliyor. Asıl yol /compact'i kullanıcı yazmış gibi çalıştırmaktır.
-    try {
-      await $.command.run({ command: "compact", args: TALIMAT });
-      return;
-    } catch {}
     const sonuc = await $.session.compact({ instructions: TALIMAT });
     if (sonuc?.skip) $.ui.toast("Compact yapılmadı: bir kısaltma kancası işlemi durdurdu.");
   } catch {
     // Tıklama ile çağrı arasına gelen bir mesaj yeni bir tur başlatabilir.
-    // Otomatik yeniden deneme yoktur: sonraki basışı kullanıcı yapar.
     $.ui.toast("Compact başlatılamadı. Başka oturumdan gelen bir mesaj da tur başlatabilir; tur bitince yeniden deneyin.");
   } finally {
     d.kisaltiyor = false;
@@ -53,8 +67,34 @@ async function kisalt($, d) {
   }
 }
 
+async function evet($, d) {
+  if (d.sirada || d.kisaltiyor) return;
+  d.soruyor = false;
+  // Tur sürerken de sorulabilir: /compact motor tarafından oturum boşalınca çalıştırılır.
+  if (d.anaTur || d.calisiyor) d.sirada = true; else d.kisaltiyor = true;
+  yenile($);
+  try {
+    await $.command.run({ command: "compact", args: TALIMAT });
+    d.sirada = d.kisaltiyor = false;
+    yenile($);
+    return;
+  } catch {}
+  if (d.anaTur || d.calisiyor) {
+    // Komut reddedildi: ana turun turn.complete'inde doğrudan denenir.
+    d.bekleyen = true;
+    d.sirada = true;
+    d.kisaltiyor = false;
+    yenile($);
+    return;
+  }
+  await dogrudan($, d);
+}
+
 export function register(on) {
-  const d = { saat: null, anaTur: false, calisiyor: false, soruyor: false, kisaltiyor: false };
+  const d = {
+    saat: null, anaTur: false, calisiyor: false, soruyor: false, kisaltiyor: false,
+    sirada: false, bekleyen: false, soruKimlik: 0, sonImza: null,
+  };
 
   on("session.start", async ($, e, next) => {
     const sonuc = await next(e);
@@ -66,14 +106,13 @@ export function register(on) {
   on("session.end", ($, e, next) => {
     if (d.saat !== null) d.saat.cancel();
     d.saat = null;
-    d.anaTur = d.calisiyor = d.soruyor = false;
+    d.anaTur = d.calisiyor = d.soruyor = d.kisaltiyor = d.sirada = d.bekleyen = false;
     return next(e);
   });
 
   on("turn.start", ($, e, next) => {
     if (e.agentId === undefined) {
       d.anaTur = d.calisiyor = true;
-      d.soruyor = false;
       saatiBaslat($, d);
       yenile($);
     }
@@ -85,55 +124,49 @@ export function register(on) {
     if (e.agentId === undefined) {
       d.anaTur = d.calisiyor = false;
       yenile($);
+      if (d.bekleyen) {
+        d.bekleyen = false;
+        // Turun kendisi bu kancayı bekler; compact tur kapandıktan sonra denenir.
+        $.clock.after(400, () => { void dogrudan($, d); });
+      }
     }
     return sonuc;
   });
 
   on("session.compact", async ($, e, next) => {
+    d.kisaltiyor = true;
+    d.sirada = false;
+    yenile($);
     try { return await next(e); }
-    finally { d.soruyor = false; yenile($); }
+    finally { d.kisaltiyor = d.soruyor = false; yenile($); }
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const alt = await next(e);
     d.calisiyor = d.anaTur || e.props.isWorking;
-    if (e.props.hasSurvey) return alt;
-    let sayac;
-    try {
-      const { context } = await $.session.usage();
-      const ayar = await $.settings.read({ key: "autoCompactWindow" });
-      sayac = olcum(context, ayar);
-    } catch { return alt; }
-    if (!sayac) return alt;
+    const sayac = await oku($);
+    d.sonImza = imza(sayac);
+    if (e.props.hasSurvey || !sayac) return alt;
 
     const { Box, Text, Button } = $.ui.resolve(e);
-    const pasif = d.calisiyor || d.kisaltiyor;
+    const metin = Text({ color: "text", tabular: true, children: sayac.metin });
     const icerik = [];
-    if (sayac.temiz) {
-      if (pasif) {
-        // Button'ın disabled/title alanı yok: basılamayan metin ve kapsamlı hover.
-        // Açıklama akış içinde açılır; bandın dışında kırpılmaz.
-        icerik.push(Box({ key: "bekle", flexDirection: "row", alignItems: "center", gap: 1, children: [
-          Text({ dimColor: true, children: d.kisaltiyor ? "Kısaltılıyor…" : "Temiz compact" }),
-          Box({ display: "none", hover: { display: "flex" }, children: [
-            Text({ children: d.kisaltiyor ? "Kısaltmanın bitmesi bekleniyor" : BEKLE }),
-          ] }),
-        ] }));
-      } else if (d.soruyor) {
-        icerik.push(
-          Text({ children: "Emin misin?" }),
-          Button({ key: "evet", label: "Evet", plain: true, variant: "secondary", onPress: () => kisalt($, d) }),
-          Button({ key: "vazgec", label: "Vazgeç", plain: true, dimColor: true, onPress: () => { d.soruyor = false; yenile($); } }),
-        );
-      } else {
-        icerik.push(Button({ key: "temiz", label: "Temiz compact", plain: true, variant: "secondary", onPress: () => {
-          if (d.anaTur || d.calisiyor || d.kisaltiyor) return;
-          d.soruyor = true;
-          yenile($);
-        } }));
-      }
+    if (d.sirada) {
+      icerik.push(Text({ color: "suggestion", children: "Compact sırada · tur bitince" }), metin);
+    } else if (d.kisaltiyor) {
+      icerik.push(Text({ dimColor: true, children: "Kısaltılıyor…" }), metin);
+    } else if (d.soruyor) {
+      icerik.push(
+        Text({ children: "Compact edilsin mi?" }),
+        Button({ key: "evet", label: "Evet", plain: true, variant: "secondary", children: "  Evet  ", onPress: () => { void evet($, d); } }),
+        Button({ key: "vazgec", label: "Vazgeç", plain: true, dimColor: true, children: "  Vazgeç  ", onPress: () => { d.soruyor = false; yenile($); } }),
+        metin,
+      );
+    } else {
+      // Sayı her dolulukta tıklanabilir; %80+ iken "Temiz compact" yazısı da düğmenin içindedir.
+      icerik.push(Button({ key: "sayac", label: "Compact", plain: true, variant: "secondary", onPress: () => soruAc($, d),
+        children: [...(sayac.temiz ? [Text({ key: "temiz-yazi", children: "Temiz compact" }), "\u00a0\u00a0"] : []), metin] }));
     }
-    icerik.push(Text({ color: "text", tabular: true, children: sayac.metin }));
     if (e.surface === "terminal") {
       const dolu = Math.round(sayac.yuzde / 100 * 8);
       icerik.push(Text({ color: sayac.renk, children: "▰".repeat(dolu) + "▱".repeat(8 - dolu) }));
