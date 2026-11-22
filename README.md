@@ -148,6 +148,67 @@ claude plugin test mod/hafiz-sayac
 
 Son komut API'nin kendi sınama ortamında masaüstü ve terminal çizimlerini, onay akışını, tur durumunu ve bildirimleri dener. Uygulamanın gerçek boyaması bu ortamın kapsamı dışındadır. `node --test` ayrıca hesap sınırlarını, eski onay basışlarını, çift basışı ve yenileme saatinin kapanmasını sınar; mevcut kanca sınamalarını da çalıştırır.
 
+## Codex (CLI ve masaüstü)
+
+Hafız, Codex CLI ve Codex masaüstü için de kurulabilir (codex-cli 0.171.0 kayıt biçimine göre hazırlandı). Claude sürümünden bağımsızdır: ayrı kurulum ve kaldırma komutları, ayrı kurulu klasör ve ayrı arşiv kullanır. `hooks/` içindeki iki ortak yardımcıyı (`compact-ortak.mjs`, `hafiz-ayar.mjs`) kendi klasörüne kopyalayıp kullanır; `install.mjs` ve `uninstall.mjs` dosyalarını kullanmaz; paketin hiçbir Claude dosyasını değiştirmez.
+
+Codex'te üç kanca çalışır:
+
+1. **PreCompact:** kısaltma başlamadan önce, Codex'in oturum kaydından (`sessions` altındaki `rollout-*.jsonl`) kullanıcının son mesajlarını sondan okuyup saklar. Codex'in kullanıcı adına eklediği metinler (`AGENTS.md`, `environment_context` vb.) atılır; görsel ve ek dosyalar kısa bir notla gösterilir; yanıt notlarında seçilen metin ile istek düz yazıya çevrilir. Açık beceri adlarını da toplar.
+2. **PostCompact:** kayıtta düz metin bir özet varsa son beş özeti arşivler.
+3. **SessionStart (yalnız `compact`):** saklanan mesajları ek bağlam olarak, en yenisi üstte olacak biçimde geri verir. Toplam en çok `parcaSayisi × parcaKarakter` (ilk değerle 28.500) karakterdir; sığmayan mesaj yarım basılmaz, tam listesi arşivdeki `son-mesajlar.md` dosyasında kalır.
+
+### Kurulum
+
+Node.js 22 veya üstü yeterlidir. Codex ayar klasörü `CODEX_HOME` ortam değişkeniyle, yoksa `~/.codex` olarak alınır. İndirdiğiniz Hafız klasöründe:
+
+```sh
+node install-codex.mjs --kuru   # yapılacakları gösterir, hiçbir dosyayı değiştirmez
+node install-codex.mjs
+```
+
+Kurucu şunları yapar:
+
+- Kanca dosyalarını `$CODEX_HOME/hafiz/` içine kopyalar. Var olan `hafiz-ayar.json` korunur; özet talimatı ayardaki dile göre `ozet-talimati.md` olarak yazılır.
+- `hooks.json` içindeki mevcut her şeyi olduğu gibi bırakır; PreCompact, PostCompact ve SessionStart (`^compact$` eşleşmesi) listelerinin sonuna birer Hafız grubu ekler. Tekrar kurulumda kopya oluşmaz.
+- `config.toml` içinde `compact_prompt` ya da `experimental_compact_prompt_file` yoksa, ilk tablo başlığından önce `experimental_compact_prompt_file` satırını (`# hafiz-codex: özet talimatı` işaretiyle) ekler. Böyle bir ayarınız varsa ona dokunmaz ve bunu bildirir; bu durumda Hafız'ın özet kuralları özete eklenmez, mesaj saklama yine çalışır.
+- Codex bir kancayı yalnız güvenildiyse çalıştırır. Kurucu güven kaydını (`[hooks.state."..."]` tabloları) yazar. Güven özeti formülü, `config.toml` içindeki sizin mevcut kayıtlarınızla önce sınanır; uyuşmazsa güven yazılmaz ve Codex'te `/hooks` ya da Ayarlar > Kancalar'dan Hafız kancalarına güvenmeniz istenir. Sınanacak mevcut kayıt yoksa güven yine yazılır ve kurucu bunu uyarıyla belirtir. Açık Codex oturumları ayarları yeniden okumayabilir; kurulumdan sonra yeni bir oturum açın.
+- `hooks.json` ve `config.toml` değişecekse önce `*.hafiz-yedek-...` adıyla yalnız sizin okuyabileceğiniz bir yedek alınır. Değişiklik yoksa yedek alınmaz. Yaptıklarının kaydı `$CODEX_HOME/hafiz/kurulum-kaydi.json` dosyasındadır.
+
+### Ayarlar
+
+`$CODEX_HOME/hafiz/hafiz-ayar.json` (paketteki ilk hali `codex/hooks/hafiz-ayar.json`). Sayısal ayarlar ve `dil` yukarıdaki Ayarlar bölümündeki tabloyla aynıdır. Farklar:
+
+| Ayar | İlk değer | Anlamı |
+| --- | --- | --- |
+| `durumDizini` | `../hafiz-durum` | Ayar dosyasının bulunduğu klasöre göre çözülür; yani `$CODEX_HOME/hafiz-durum`. Claude arşivi ile karışmaz. |
+| `kullaniciEtiketi` | `null` | Geri basılan başlıkta "KULLANICININ" yerine görünecek ad (en çok 60 karakter). |
+| `execOturumlari` | `false` | `codex exec` ile başlatılan oturumlar varsayılan olarak dışarıda tutulur. `true` yaparsanız onlar da saklanır ve geri basılır. |
+
+`SessionStart` kaydına `additionalContextLimit: 15000` yazılır. Bu sayının Codex tarafında hangi birimle (karakter ya da başka) sayıldığı doğrulanamadı. Codex kendi sınırında keserse `parcaSayisi` değerini düşürün; tam liste her durumda arşivdeki `son-mesajlar.md` dosyasında bulunur.
+
+### Kaldırma
+
+```sh
+node uninstall-codex.mjs --kuru   # önizleme
+node uninstall-codex.mjs
+```
+
+Yalnız Hafız'a ait olanı kaldırır: `hooks.json` içindeki, komutu kayıtla birebir eşleşen işleyiciler; `config.toml` içinde anahtarı ve özet değeri kayıttakiyle aynı olan güven tabloları; ve değeri hâlâ Hafız'ın kurduğu dosya olan özet talimatı satırı. Siz değiştirdiyseniz o satıra ya da tabloya dokunulmaz. Değiştirmeden önce yedek alınır. Program dosyaları, ayar, özet arşivi ve yedekler silinmez; komut, tam silme için hangi klasörleri silebileceğinizi yazar (`$CODEX_HOME/hafiz` ve `$CODEX_HOME/hafiz-durum`).
+
+Codex güven kaydını grup sırasıyla tuttuğu için, Hafız grubundan sonra sizin eklediğiniz bir kanca grubu varsa kaldırma o grubun sırasını değiştirir ve onu `/hooks` üzerinden yeniden onaylamanız gerekebilir; komut bu durumu uyarıyla bildirir. Hafız kendi gruplarını her zaman listenin sonuna ekler ve var olan grubu yerinde günceller.
+
+### Sınırlar
+
+- **Şifreli özet arşivlenemez.** OpenAI modellerinde Codex özeti şifreli bir kayıt olarak tutar; PostCompact yalnız kayıtta düz metin özet varsa (`compacted` kaydının `message` alanı doluysa) arşivler. Şifreli ya da boş özet sessizce atlanır. Kullanıcı mesajlarının saklanması özetten bağımsızdır ve her durumda çalışır.
+- **Özet talimatının uygulanıp uygulanmadığı doğrulanamadı.** `experimental_compact_prompt_file`, Codex'in özetleme isteğinde kullandığı talimatın yerine geçer; OpenAI'nin uzak kısaltma yolunda (özet şifreli üretildiğinde) uygulanıp uygulanmadığı doğrulanamadı. Bu yüzden asıl güvence, özete bağlı olmayan geri basımdır.
+- **Alt ajan ve `codex exec` oturumları dışarıdadır.** Bir alt ajanın kancası şu işaretlerin her biri tek başına yeterli olacak biçimde reddedilir: girdide `agent_id` ya da `agent_type`; oturum kaydının ilk satırının kök kullanıcı oturumu olmaması; oturum kimliğinin kancaya gelen `session_id` ile eşleşmemesi. Reddedilen alt ajan mesaj ya da özet kaydı oluşturmaz, çıktı vermez ve ana oturumun arşivine dokunmaz. `codex exec` oturumları `execOturumlari` ile açılabilir.
+- Kayıt dosyası yalnız Codex'in `sessions` ve `archived_sessions` klasörlerinden (gerçek yol olarak) kabul edilir; göreli yol, bağlantı ile dışarı çıkan ya da başka klasördeki dosya reddedilir.
+- Kayıt biçimi Codex'in iç ayrıntısıdır ve sürümler arasında değişebilir. Tanınmayan kayıtlar atlanır; geri basım gerekli bilgiyi bulamazsa çıktı vermez, kısaltmayı durdurmaz. Her kanca hata durumunda da başarılı çıkış koduyla döner.
+- Okuma sınırları Claude sürümüyle aynıdır: yaklaşık dört saniye, bozuk ve sekiz MB'ı aşan satırlar atlanır.
+
+Codex sınamaları `node --test codex/codex.test.mjs` ile ayrı çalışır; paket kökündeki `node --test` ise hepsini birlikte çalıştırır. Sınamalar sahte `CODEX_HOME` ve sahte ev klasörü kullanır, gerçek `~/.codex` ve `~/.claude` klasörlerine dokunmaz ve `codex` komutunu çalıştırmaz.
+
 ## Doğrulama
 
 Paket klasöründe `node --test` ya da `npm test` çalışır. Bağımlılık kurulmaz. Sınamalar kendi geçici ev, konuşma ve kurulum klasörlerini paket klasöründe oluşturup sonunda temizler; gerçek kullanıcı ayarına dokunmaz. İçerik ayıklama, izinler, kuyruk mesajları, büyük kayıtlar, iki dil, saklama sınırları ve kurma/kaldırma birlikte sınanır.
