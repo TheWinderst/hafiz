@@ -23,6 +23,10 @@ process.on('uncaughtException', e => { O.logla('compact-oncesi', O.yazi(`yakalan
 
 try {
   const g = JSON.parse((await O.stdinOku()) || '{}');
+  // Alt ajan compact'i: transcript_path ve session_id ANA oturumunkidir; ana oturumun durumuna yazilmaz,
+  // temizlik calismaz. Talimat metni kullanicinin son mesajlarinin geri basilacagini soyler (ana oturuma
+  // ozgu) ve alt ajanda o mesajlar basilmaz; bu yuzden talimat da basilmaz, alt ajan varsayilan ozete doner.
+  if (O.altAjanKimligi(g)) { basildi = true; process.exit(0); }
   const sid = g.session_id;
   const k = O.kendiTranskripti(g.transcript_path);
   if (!k.ok) throw new Error(O.yazi(`reddedildi: ${k.neden}`, `rejected: ${k.neden}`)); // yalniz talimat basilir, durum yazilmaz

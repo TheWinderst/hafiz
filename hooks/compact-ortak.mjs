@@ -299,15 +299,86 @@ export function kuyrukMesaji(d) {
   return { metin: t, zaman: typeof a.timestamp === 'string' ? a.timestamp : (typeof d.timestamp === 'string' ? d.timestamp : ''), kaynak: a.source_uuid || '' };
 }
 
-export function kirp(t, tavan = SINIR.mesaj) {
+export function kirp(t, tavan = SINIR.mesaj, basTavan = 2600, sonTavan = 1200) {
   if (t.length <= tavan) return t;
   const isaret = yazi('\n[…kırpıldı…]\n', '\n[…trimmed…]\n');
   const kalan = Math.max(0, tavan - isaret.length);
-  const ilk = Math.min(2600, Math.ceil(kalan * 0.7));
-  const son = Math.min(1200, kalan - ilk);
+  const ilk = Math.min(basTavan, Math.ceil(kalan * 0.7));
+  const son = Math.min(sonTavan, kalan - ilk);
   const bas = t.slice(0, ilk).replace(/[\uD800-\uDBFF]$/, '');
   const bit = son ? t.slice(-son).replace(/^[\uDC00-\uDFFF]/, '') : '';
   return bas + isaret + bit;
+}
+
+// ---------------------------------------------------------------- alt ajan ayirimi
+// Claude Code: alt ajanda calisan her kancanin stdin JSON'unda agent_id bulunur; ana oturumda yoktur
+// (--agent ile acilan ana oturumda yalniz agent_type olabilir). transcript_path ve session_id alt
+// ajanda da ANA oturumunkidir; bu yuzden tek ayirici agent_id'dir ve kancalar alt ajanin compact'ini
+// ana oturumun durumundan ayirir.
+export function altAjanKimligi(g) {
+  const k = g && typeof g === 'object' ? g.agent_id : null;
+  return typeof k === 'string' && k.trim() ? k : null;
+}
+
+const GOREV_BASLIK = yazi(
+  'GÖREV TANIMIN (compact öncesi, BİREBİR; özetten üstündür):',
+  'YOUR TASK DEFINITION (before compact, VERBATIM; takes priority over the summary):'
+);
+const GOREV_OKU = 4 * 1024 * 1024; // dosyanin basindan okunan en cok bayt (gorev tanimi ilk satirlardadir)
+
+// Alt ajan dokumu: <transcript_path klasoru>/<session_id>/subagents/agent-<agent_id>.jsonl.
+// Kimlik ya da oturum guvenli karakter disindaysa, yol (realpath) projeler kokunun disina cikarsa
+// ya da dosya yoksa null.
+export function altAjanDokumu(g) {
+  const kimlik = altAjanKimligi(g);
+  const sid = g?.session_id; const tp = g?.transcript_path;
+  const guvenli = /^[A-Za-z0-9_-]+$/;
+  if (!kimlik || typeof sid !== 'string' || !guvenli.test(kimlik.trim()) || !guvenli.test(sid)) return null;
+  if (typeof tp !== 'string' || !tp || !path.isAbsolute(tp)) return null;
+  const k = kimlik.trim();
+  const ad = k.startsWith('agent-') ? k : `agent-${k}`;
+  const yol = path.join(path.dirname(tp), sid, 'subagents', `${ad}.jsonl`);
+  try {
+    const gercek = fs.realpathSync(yol); const kok = fs.realpathSync(projelerKok());
+    if (!gercek.startsWith(kok + path.sep) || !fs.statSync(gercek).isFile()) return null;
+    return gercek;
+  } catch { return null; }
+}
+
+// Alt ajan dokumunun ILK gercek kullanici mesaji (type=user, isSidechain=true, tool_result degil)
+// = gorev tanimi. Temizlenmis metin ya da null. Dosya basindan okunur, tamami taranmaz.
+export function altAjanGorevi(yol) {
+  const fd = fs.openSync(yol, 'r');
+  let metin;
+  try {
+    const b = Buffer.alloc(Math.min(fs.fstatSync(fd).size, GOREV_OKU));
+    const n = fs.readSync(fd, b, 0, b.length, 0);
+    metin = b.subarray(0, n).toString('utf8');
+    if (n === b.length && n === GOREV_OKU) metin = metin.slice(0, metin.lastIndexOf('\n') + 1); // yarim son satiri at
+  } finally { try { fs.closeSync(fd); } catch {} }
+  for (const satir of metin.split('\n')) {
+    if (!satir || satir.indexOf('"type":"user"') < 0) continue;
+    let d; try { d = JSON.parse(satir); } catch { continue; }
+    if (!d || d.type !== 'user' || d.isSidechain !== true || d.message?.role !== 'user') continue;
+    if (d.isMeta || d.isCompactSummary || d.isSynthetic || d.sourceToolAssistantUUID || d.toolUseResult) continue;
+    const c = d.message.content;
+    if (Array.isArray(c) && c.some(x => x && x.type === 'tool_result')) continue;
+    const t = icerikMetni(c);
+    if (t) return t;
+  }
+  return null;
+}
+
+// SessionStart compact, alt ajan: yalniz 1. parcada alt ajanin kendi gorev tanimini birebir basar;
+// diger parcalar bos. Cikti sinirini (SINIR.cikti) asmaz; uzunsa bas ve son korunarak kirpilir.
+export function altAjanGorevMetni(n, g) {
+  if (n !== 1) return '';
+  const yol = altAjanDokumu(g);
+  if (!yol) return '';
+  const t = altAjanGorevi(yol);
+  if (!t) return '';
+  const pay = SINIR.cikti - 1 - GOREV_BASLIK.length - 1 - 100; // baslik + satir sonu + guvenlik payi
+  return `${GOREV_BASLIK}\n${kirp(t, pay, pay, pay)}`;
 }
 
 function skillAdlari(d) {

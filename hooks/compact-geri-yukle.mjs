@@ -18,7 +18,13 @@ function parcaNo(argv) {
 try {
   const g = JSON.parse((await O.stdinOku()) || '{}');
   const n = parcaNo(process.argv.slice(2));
-  if (g.source === 'compact' && n) {
+  if (g.source === 'compact' && n && O.altAjanKimligi(g)) {
+    // Alt ajan compact'i: kullanici mesajlari ve skill hatirlatmasi basilmaz (ana oturuma aittir); yalniz
+    // 1. parcada alt ajanin kendi gorev tanimi birebir geri basilir. Dokum yoksa ya da yol disariya
+    // cikarsa sessiz.
+    const metin = O.altAjanGorevMetni(n, g);
+    if (metin) O.bas(metin);
+  } else if (g.source === 'compact' && n) {
     const k = O.kendiTranskripti(g.transcript_path);
     if (!k.ok) throw new Error(O.yazi(`reddedildi: ${k.neden}`, `rejected: ${k.neden}`));
     const veri = O.durumHazirla({ ...g, transcript_path: k.yol });

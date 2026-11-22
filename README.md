@@ -91,7 +91,7 @@ Klasör izinleri `0700`, dosya izinleri `0600` yapılır: normal dosya izinleri 
 
 Temizlik kısaltma öncesinde çalışır. Yedi günden eski konuşmalar silinir; 50 MB eşiği aşılırsa en eskilerden devam edilir. **O sıradaki konuşma silinmez**; bu nedenle boyut eşiği mutlak disk kotası değildir. Özet sayısı sınırı ise her yeni özet kaydında uygulanır. Kancalar devreden çıkarıldıktan sonra otomatik temizlik çalışmaz. Ayar yedekleri bu arşiv temizliğine dahil değildir.
 
-Yapıştırılmış sayfa ve dosya içerikleri geri verilen mesajlarda yer tutucuya dönüşür; sistem hatırlatmaları ayıklanır. Araç sonuçları, otomatik görev bildirimleri ve alt ajan kayıtları son kullanıcı mesajı sayılmaz. Alt ajan konuşmalarında mesaj veya özet kaydı oluşturulmaz; kısaltma öncesindeki genel özet talimatı yine verilebilir. Özet arşivi, uygulamanın ürettiği özeti olduğu gibi saklar; yapıştırılmış içeriğin özette hiç geçmeyeceği garanti edilmez.
+Yapıştırılmış sayfa ve dosya içerikleri geri verilen mesajlarda yer tutucuya dönüşür; sistem hatırlatmaları ayıklanır. Araç sonuçları, otomatik görev bildirimleri ve alt ajan kayıtları son kullanıcı mesajı sayılmaz. Bir alt ajan kendi konuşmasını kısaltınca Hafız ana konuşmanın arşivine dokunmaz: mesaj veya özet kaydı oluşturmaz, eski özetleri silmez, özet talimatı vermez; yalnız alt ajanın kendi görev tanımını geri verir. Özet arşivi, uygulamanın ürettiği özeti olduğu gibi saklar; yapıştırılmış içeriğin özette hiç geçmeyeceği garanti edilmez.
 
 ## Sınırlar
 

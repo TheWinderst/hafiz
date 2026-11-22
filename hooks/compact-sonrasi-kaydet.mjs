@@ -9,6 +9,8 @@ process.on('uncaughtException', e => { O.logla('compact-sonrasi-kaydet', O.yazi(
 
 try {
   const g = JSON.parse((await O.stdinOku()) || '{}');
+  // Alt ajan compact'i: ozet ana oturumun klasorune yazilmaz, ana oturumun eski ozetleri silinmez.
+  if (O.altAjanKimligi(g)) process.exit(0);
   const k = O.kendiTranskripti(g.transcript_path);
   if (!k.ok) throw new Error(O.yazi(`reddedildi: ${k.neden}`, `rejected: ${k.neden}`));
   if (typeof g.compact_summary === 'string' && g.compact_summary) {

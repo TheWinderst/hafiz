@@ -1,6 +1,6 @@
 {
   "name": "hafiz-compact",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Claude Code konuşma kısaltmasında son kullanıcı mesajlarını yerelde korur.",
   "type": "module",

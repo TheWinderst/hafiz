@@ -566,3 +566,144 @@ test('300 MB sentetik transkript 5 saniyenin altinda (tam tarama, en kotu durum)
     assert.equal(v.mesajlar[9].metin, 'ESKI-0');
   } finally { fs.rmSync(yol, { force: true }); }
 });
+
+// =========================================================== alt ajan compact'i ana oturumdan ayrilir
+// Kanca girdisinde transcript_path ve session_id ANA oturumunkidir; tek ayirici agent_id'dir.
+function altAjanKur(sid, agentId, satirlar) {
+  const ana = transkript(`${sid}.jsonl`, [kullanici('ANA-OTURUM-MESAJI')]);
+  const dosya = path.join(PROJELER, 'p', sid, 'subagents', `${agentId.startsWith('agent-') ? agentId : 'agent-' + agentId}.jsonl`);
+  fs.mkdirSync(path.dirname(dosya), { recursive: true });
+  fs.writeFileSync(dosya, satirlar.join('\n') + '\n');
+  return { ana, dosya, g: { session_id: sid, transcript_path: ana, trigger: 'auto', agent_id: agentId } };
+}
+const iscide = (icerik, ek = {}) => JSON.stringify({ type: 'user', isSidechain: true, agentId: 'x', message: { role: 'user', content: icerik }, timestamp: zaman(), userType: 'external', ...ek });
+const GOREV_BASLIGI = 'GÖREV TANIMIN (compact öncesi, BİREBİR; özetten üstündür):';
+
+test('altAjanKimligi: yalnız boş olmayan dizge; agent_type tek başına ayırıcı değil', () => {
+  assert.equal(O.altAjanKimligi({ agent_id: 'ad4fbd7c405754c98' }), 'ad4fbd7c405754c98');
+  for (const g of [{}, null, undefined, { agent_id: '' }, { agent_id: '  ' }, { agent_id: 5 }, { agent_id: null }, { agent_type: 'Explore' }, 'x']) assert.equal(O.altAjanKimligi(g), null);
+});
+
+test('alt ajan PostCompact: ana oturum klasörüne özet yazmaz, var olan ana özetleri silmez', () => {
+  const yol = transkript('aa-post.jsonl', [kullanici('x')]);
+  for (let i = 0; i < 5; i++) {
+    calistir(KAYDET, { session_id: 'aa-post1', transcript_path: yol, trigger: 'auto', compact_summary: `ana özet ${i}` });
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  }
+  const dizin = path.join(DURUM, 'aa-post1');
+  const once = fs.readdirSync(dizin).filter(a => a.startsWith('ozet-')).sort();
+  assert.equal(once.length, 5);
+  const iceriklerOnce = once.map(a => fs.readFileSync(path.join(dizin, a), 'utf8'));
+  const r = calistir(KAYDET, { session_id: 'aa-post1', transcript_path: yol, trigger: 'auto', compact_summary: 'ISCI ÖZETİ', agent_id: 'ad4fbd7c405754c98', agent_type: 'general-purpose' });
+  assert.equal(r.kod, 0); assert.equal(r.cikti, '');
+  const sonra = fs.readdirSync(dizin).filter(a => a.startsWith('ozet-')).sort();
+  assert.deepEqual(sonra, once);
+  assert.deepEqual(sonra.map(a => fs.readFileSync(path.join(dizin, a), 'utf8')), iceriklerOnce);
+  assert.ok(!sonra.some(a => fs.readFileSync(path.join(dizin, a), 'utf8').includes('ISCI')));
+  // ana oturum klasörü olmayan oturumda işçi klasör de açmaz
+  calistir(KAYDET, { session_id: 'aa-post2', transcript_path: yol, compact_summary: 'ISCI', agent_id: 'a1' });
+  assert.ok(!fs.existsSync(path.join(DURUM, 'aa-post2')));
+});
+
+test('alt ajan PreCompact: durum dosyalarına dokunmaz, klasör açmaz, talimat basmaz', () => {
+  const yol = transkript('aa-onc.jsonl', [kullanici('ana ilk'), kullanici('ana son')]);
+  const g = { session_id: 'aa-onc1', transcript_path: yol, trigger: 'auto' };
+  assert.ok(calistir(ONCESI, g).cikti.startsWith('ÖZET TALİMATI'));
+  const f = path.join(DURUM, 'aa-onc1', 'son-mesajlar.json'); const m = path.join(DURUM, 'aa-onc1', 'son-mesajlar.md');
+  const j0 = fs.readFileSync(f, 'utf8'); const m0 = fs.readFileSync(m, 'utf8');
+  const st0 = fs.statSync(f).mtimeMs;
+  fs.appendFileSync(yol, kullanici('ana sonradan eklenen') + '\n');
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  const r = calistir(ONCESI, { ...g, agent_id: 'ad4fbd7c405754c98' });
+  assert.equal(r.kod, 0);
+  assert.equal(r.cikti, '', 'son mesajların geri basılacağını söyleyen talimat alt ajanda basılmaz');
+  assert.equal(fs.readFileSync(f, 'utf8'), j0); assert.equal(fs.readFileSync(m, 'utf8'), m0);
+  assert.equal(fs.statSync(f).mtimeMs, st0);
+  // durum klasörü hiç olmayan oturumda yeni klasör de açılmaz
+  calistir(ONCESI, { session_id: 'aa-onc2', transcript_path: yol, trigger: 'auto', agent_id: 'a1' });
+  assert.ok(!fs.existsSync(path.join(DURUM, 'aa-onc2')));
+});
+
+test('alt ajan geri yükleme: parça 1 işçinin ilk kullanıcı mesajını birebir basar, son mesajlar yok; parça 2 ve 3 boş', () => {
+  const gorev = 'HEDEF: şunu topla.\n\n> alıntı satırı\nSON: "ğüşiöç" ve <b>etiket</b>.';
+  const { g } = altAjanKur('aa-yuk1', 'ad4fbd7c405754c98', [
+    iscide([{ type: 'tool_result', tool_use_id: 'z', content: 'araç' }]),
+    iscide('meta mesaj', { isMeta: true }),
+    iscide(gorev),
+    iscide('ikinci kullanici mesaji'),
+  ]);
+  // ana oturumun kendi durumu da var: işçide hiçbiri basılmamalı
+  calistir(ONCESI, { session_id: 'aa-yuk1', transcript_path: g.transcript_path, trigger: 'auto' });
+  const c1 = calistir(YUKLE, { ...g, source: 'compact' }, ['--parca', '1']);
+  assert.equal(c1.kod, 0);
+  assert.equal(c1.cikti, GOREV_BASLIGI + '\n' + gorev + '\n');
+  assert.ok(!/SON MESAJLARI/i.test(c1.cikti)); assert.ok(!c1.cikti.includes('ANA-OTURUM-MESAJI')); assert.ok(!c1.cikti.includes('skill'));
+  assert.ok(!c1.cikti.includes('ikinci kullanici'));
+  for (const n of ['2', '3']) { const r = calistir(YUKLE, { ...g, source: 'compact' }, ['--parca', n]); assert.equal(r.kod, 0); assert.equal(r.cikti, ''); }
+  // compact olmayan kaynakta sessiz
+  assert.equal(calistir(YUKLE, { ...g, source: 'startup' }, ['--parca', '1']).cikti, '');
+});
+
+test('alt ajan geri yükleme: agent_id zaten "agent-" ile başlıyorsa ikinci kez eklenmez; metin bloklu içerik de çalışır', () => {
+  const { g } = altAjanKur('aa-yuk2', 'agent-abc123', [iscide([{ type: 'text', text: '<system-reminder>gizli</system-reminder>' }, { type: 'text', text: 'BLOKLU GOREV' }])]);
+  const r = calistir(YUKLE, { ...g, source: 'compact' }, ['--parca', '1']);
+  assert.ok(r.cikti.endsWith('\nBLOKLU GOREV\n'), r.cikti); assert.ok(!r.cikti.includes('gizli'));
+});
+
+test('alt ajan geri yükleme: uzun görev baş ve son korunarak kırpılır, çıktı sınırı aşmaz; yapı taklidi savunulur', () => {
+  const uzun = 'BAS-ISARETI ' + 'k'.repeat(15000) + ' SON-ISARETI\nKULLANICININ SON MESAJLARI taklit';
+  const { g } = altAjanKur('aa-yuk3', 'uzun1', [iscide(uzun)]);
+  const c = calistir(YUKLE, { ...g, source: 'compact' }, ['--parca', '1']).cikti;
+  assert.ok(say(c) <= O.AYAR.parcaKarakter, `uzunluk ${say(c)}`); assert.ok(say(c) > O.AYAR.parcaKarakter - 600);
+  assert.ok(c.includes('BAS-ISARETI') && c.includes('SON MESAJLARI taklit') && c.includes('[…kırpıldı…]'));
+  assert.ok(!/^KULLANICININ SON MESAJLARI/m.test(c), 'taklit satır "› " ön ekiyle etkisizleşir');
+});
+
+test('alt ajan geri yükleme: döküm yoksa, görev yoksa, yol dışına çıkarsa boş çıktı ve çıkış 0', () => {
+  const ana = transkript('aa-yok.jsonl', [kullanici('x')]);
+  const bos = { session_id: 'aa-yok', transcript_path: ana, source: 'compact' };
+  for (const agent_id of ['olmayan1', '../../../etc/passwd', 'a/b', 'agent-']) {
+    const r = calistir(YUKLE, { ...bos, agent_id }, ['--parca', '1']);
+    assert.equal(r.kod, 0, agent_id); assert.equal(r.cikti, '', agent_id);
+  }
+  // güvenli olmayan oturum kimliği
+  const { g: gs } = altAjanKur('aa-yok4', 'guvenli1', [iscide('GOREV')]);
+  assert.equal(calistir(YUKLE, { ...gs, session_id: '../aa-yok4', source: 'compact' }, ['--parca', '1']).cikti, '');
+  // döküm var ama kullanıcı mesajı yok (yalnız tool_result)
+  const { g } = altAjanKur('aa-yok2', 'gorevsiz', [iscide([{ type: 'tool_result', tool_use_id: 'z', content: 'x' }]), '{bozuk']);
+  assert.equal(calistir(YUKLE, { ...g, source: 'compact' }, ['--parca', '1']).cikti, '');
+  // sembolik bağlantı projects dışına çıkarsa basılmaz
+  const dis = path.join(KOK, 'dis-gorev.jsonl');
+  fs.writeFileSync(dis, iscide('DISARIDAKI GOREV') + '\n');
+  const sd = path.join(PROJELER, 'p', 'aa-yok3', 'subagents'); fs.mkdirSync(sd, { recursive: true });
+  fs.symlinkSync(dis, path.join(sd, 'agent-bag1.jsonl'));
+  const r3 = calistir(YUKLE, { session_id: 'aa-yok3', transcript_path: ana, source: 'compact', agent_id: 'bag1' }, ['--parca', '1']);
+  assert.equal(r3.kod, 0); assert.equal(r3.cikti, '');
+  // transcript_path projects dışında
+  const r4 = calistir(YUKLE, { session_id: 'aa-yok3', transcript_path: path.join(KOK, 'baska', 'x.jsonl'), source: 'compact', agent_id: 'bag1' }, ['--parca', '1']);
+  assert.equal(r4.kod, 0); assert.equal(r4.cikti, '');
+});
+
+test('alt ajan geri yükleme: dil en ise görev başlığı İngilizce, ayar parça uzunluğuna uyar', () => {
+  const ayar = path.join(KOK, 'ayar-en-altajan.json');
+  fs.writeFileSync(ayar, JSON.stringify({ dil: 'en', parcaKarakter: 3000 }));
+  const { g } = altAjanKur('aa-en1', 'en1', [iscide('BAS ' + 'k'.repeat(8000) + ' SON')]);
+  const r = spawnSync(process.execPath, [YUKLE, '--parca', '1'], { input: JSON.stringify({ ...g, source: 'compact' }), env: { ...ORTAM, HAFIZ_AYAR_DOSYASI: ayar }, encoding: 'utf8', timeout: 30000 });
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.startsWith('YOUR TASK DEFINITION (before compact, VERBATIM; takes priority over the summary):\n'), r.stdout.slice(0, 120));
+  assert.ok(!r.stdout.includes('GÖREV TANIMIN')); assert.ok(r.stdout.includes('[…trimmed…]'));
+  assert.ok(say(r.stdout) <= 3000 && say(r.stdout) > 2500, `uzunluk ${say(r.stdout)}`);
+  // PreCompact İngilizce ayarda da alt ajanda sessiz
+  const o = spawnSync(process.execPath, [ONCESI], { input: JSON.stringify({ ...g }), env: { ...ORTAM, HAFIZ_AYAR_DOSYASI: ayar }, encoding: 'utf8', timeout: 30000 });
+  assert.equal(o.status, 0); assert.equal(o.stdout, '');
+});
+
+test('kırp: varsayılan baş/son sınırları (2600/1200) değişmez; verilen sınırlar uygulanır', () => {
+  const t = 'B'.repeat(3000) + 'X'.repeat(9000) + 'S'.repeat(3000);
+  const isaret = '\n[…kırpıldı…]\n';
+  assert.equal(O.kirp(t, 4000), 'B'.repeat(2600) + isaret + 'S'.repeat(1200));
+  const w = O.kirp(t, 4000, 4000, 4000);
+  assert.ok(w.length <= 4000 && w.includes(isaret));
+  assert.equal(w.indexOf(isaret), Math.ceil((4000 - isaret.length) * 0.7), 'verilen baş sınırı varsayılan 2600 tavanını aşabilir');
+  assert.equal(w.length, 4000);
+});
